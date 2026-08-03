@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+.env
+
+# VS Code / IDEs
+.vscode/
+.idea/
+
+# Dumps de pruebas y Logs
+*.html
+*.log
+*.json
+
+# Archivos de configuración local de GCP / Docker
+.gcloud/
+
+# Archivos temporales de SeleniumBase / Scrapers
+downloaded_files/
