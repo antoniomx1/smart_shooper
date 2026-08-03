@@ -5,7 +5,7 @@ import requests
 from flask import Flask, request, jsonify
 from google.cloud import pubsub_v1
 
-# Importaciones de pipeline de smartshooper
+# Importaciones de tu pipeline
 from src.services.search_manager import SearchManager
 from src.services.ai_service import AIService
 from src.services.data_pipeline import DataPipeline
@@ -28,13 +28,14 @@ pipeline = DataPipeline(project_id=PROJECT_ID)
 
 def enviar_mensaje_telegram(chat_id, texto):
     if not TELEGRAM_TOKEN:
+        print("[Main] Warning: TELEGRAM_BOT_TOKEN no configurado.")
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": chat_id, "text": texto, "parse_mode": "Markdown"}
     try:
         requests.post(url, json=payload, timeout=5)
     except Exception as e:
-        print(f"Error enviando mensaje a Telegram: {e}")
+        print(f"[Main ERROR] Fallo enviando mensaje a Telegram: {e}")
 
 @app.route("/", methods=["GET"])
 def health_check():
@@ -59,7 +60,7 @@ def webhook():
     if texto_recibido.startswith("/start"):
         enviar_mensaje_telegram(
             chat_id, 
-            "🛒 *¡Qué onda! Soy SmartShopper Bot.*\n\nEscríbeme el producto que buscas (ej. `bocina jbl`) y escaneo Amazon, Liverpool, Coppel, Mercado Libre y Walmart."
+            "🛒 *¡Hola! Soy SmartShopper Bot.*\n\nEscríbeme el producto que buscas (ej. `bocina jbl`) y escaneo las tiendas para traerte las mejores ofertas."
         )
         return jsonify({"status": "ok"}), 200
 
@@ -77,10 +78,10 @@ def webhook():
     futuro_envio = publicador_client.publish(TOPIC_PATH, datos_en_bytes)
     futuro_envio.result()
     
-    # 4. Avisamos al usuario para calmar ansias
+    # 4. Avisamos al usuario para calmar ansias (Markdown limpio)
     enviar_mensaje_telegram(
         chat_id, 
-        f"🔍 _Buscando ofertas para:* `{texto_recibido}`...\nEn unos segundos te mando el ranking de precios._"
+        f"🔍 *Buscando ofertas para:* `{texto_recibido}`...\nEn unos segundos te mando el análisis de Gemini."
     )
     
     # 5. HTTP 200 a Telegram de inmediato (evita retries y duplicados)
@@ -113,28 +114,24 @@ def procesar_busqueda():
             # 3. Guardar en GCS Raw Data Lake
             gcs_uri = pipeline.save_raw_to_gcs(query, raw_results)
             
-            # 4. Normalizar con Gemini
+            # 4. Normalizar modelos con Gemini
             enriched_results = ai_service.normalize_product_models(raw_results)
             
-            # 5. Guardar en BigQuery
+            # 5. Guardar datos procesados en BigQuery
             pipeline.insert_to_bigquery(query, enriched_results, gcs_uri)
             
-            # 6. Formatear respuesta de Telegram
-            mensaje_res = f"📊 *Ranking de Precios para:* `{query}`\n\n"
-            for i, prod in enumerate(enriched_results, 1):
-                mensaje_res += f"{i}. *[{prod['store']}]* {prod['title']}\n"
-                mensaje_res += f"   💰 *Precio:* ${prod['price']:,.2f} {prod['currency']}\n"
-                mensaje_res += f"   🔗 [Ver Producto]({prod['link']})\n\n"
+            # 6. RESUMEN INTELIGENTE CON GEMINI 
+            mensaje_res = ai_service.generate_telegram_summary(query, enriched_results)
         else:
-            mensaje_res = f"❌ No encontré resultados para `{query}` en ninguna tienda."
+            mensaje_res = f"No encontré nada disponible para '{query}' ahorita."
         
-        # 7. Despachamos el resultado a Telegram
+        # 7. Despachamos la recomendación de Gemini a Telegram
         enviar_mensaje_telegram(chat_id, mensaje_res)
         
     except Exception as e:
-        print(f"🚨 Error en el procesamiento asíncrono: {str(e)}")
+        print(f" Error en el procesamiento asíncrono: {str(e)}")
         if 'chat_id' in locals():
-            enviar_mensaje_telegram(chat_id, "⚠️ Hubo un fallo técnico escaneando las tiendas. Intenta de nuevo.")
+            enviar_mensaje_telegram(chat_id, "Hubo un fallo técnico al analizar las tiendas. Intenta de nuevo.")
         
     return jsonify({"status": "processed"}), 200
 
