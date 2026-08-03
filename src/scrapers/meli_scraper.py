@@ -4,7 +4,7 @@ from typing import List, Dict, Any
 from src.scrapers.base_scraper import BaseScraper
 
 class MeliScraper(BaseScraper):
-    """Scraper ultrarrápido para Mercado Libre impersonando huella TLS de Chrome."""
+    """Scraper ultrarrápido para Mercado Libre con parsing resiliente sobre TLS Chrome."""
 
     def __init__(self):
         super().__init__(store_name="MeLi")
@@ -17,12 +17,10 @@ class MeliScraper(BaseScraper):
 
         headers = {
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-            "Accept-Language": "es-MX,es;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Cache-Control": "max-age=0",
+            "Accept-Language": "es-MX,es-419;q=0.9,es;q=0.8",
         }
 
         try:
-            # MAGIA CLAVE: impersonate="chrome" suplanta la huella TLS de Chrome 124
             response = requests.get(url, headers=headers, impersonate="chrome", timeout=8)
             
             if response.status_code != 200:
@@ -30,17 +28,25 @@ class MeliScraper(BaseScraper):
                 return []
 
             soup = BeautifulSoup(response.text, "html.parser")
-            items = soup.select(".poly-card, .ui-search-layout__item, .ui-search-result, .ui-search-layout__stack")
+            
+            # Selector ampliado: atrapa tanto la versión móvil como desktop de MeLi
+            items = soup.select(".poly-card, .ui-search-result, .ui-search-layout__item, li.ui-search-layout__stack")
 
-            print(f"🔍 [MeLi Debug TLS] Items encontrados con curl_cffi: {len(items)}")
+            # Fallback 1: Si los selectores CSS fallan, buscamos los contenedores a partir de los precios
+            if not items:
+                items = []
+                for price_elem in soup.select(".andes-money-amount"):
+                    parent = price_elem.find_parent("li") or price_elem.find_parent("div")
+                    if parent and parent not in items:
+                        items.append(parent)
 
             seen_titles = set()
 
             for item in items:
-                if len(results) >= limit:
+                if not item or len(results) >= limit:
                     break
 
-                title_elem = item.select_one(".poly-component__title, .ui-search-item__title, h2, h3")
+                title_elem = item.select_one(".poly-component__title, .ui-search-item__title, h2, h3, .ui-search-item__group__element")
                 link_elem = item.select_one("a[href*='mercadolibre.com.mx']") or item.select_one("a")
                 price_elem = item.select_one(".andes-money-amount__fraction")
 
@@ -50,7 +56,7 @@ class MeliScraper(BaseScraper):
                     price = float(raw_price) if raw_price.isdigit() else 0.0
                     link = link_elem.get("href", "")
 
-                    if price > 0 and title not in seen_titles:
+                    if price > 0 and title not in seen_titles and len(title) > 3:
                         seen_titles.add(title)
                         results.append({
                             "title": title,
@@ -61,6 +67,7 @@ class MeliScraper(BaseScraper):
                             "store": self.store_name
                         })
 
+            print(f"🔍 [MeLi Debug TLS] Productos procesados: {len(results)}")
             return results
 
         except Exception as e:
