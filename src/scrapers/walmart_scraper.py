@@ -1,12 +1,11 @@
 import re
 from urllib.parse import unquote
-from seleniumbase import Driver
 from bs4 import BeautifulSoup
 from typing import List, Dict, Any
 from src.scrapers.base_scraper import BaseScraper
 
 class WalmartScraper(BaseScraper):
-    """Scraper profesional para Walmart México usando análisis de nodos /ip/."""
+    """Scraper para Walmart México con manejo estricto de sesión."""
 
     def __init__(self):
         super().__init__(store_name="Walmart")
@@ -16,20 +15,16 @@ class WalmartScraper(BaseScraper):
         formatted_query = query.strip().replace(" ", "+")
         url = f"{self.base_url}{formatted_query}"
         results = []
+        driver = None
 
         try:
             driver = self.get_driver()
-            driver.uc_open_with_reconnect(url, reconnect_time=5)
-            
-            # Dar tiempo a Akamai para evaluar la sesión UC
-            driver.execute_script("window.scrollTo(0, 800);")
-            driver.sleep(3)
+            driver.uc_open_with_reconnect(url, reconnect_time=3)
             
             html_content = driver.page_source
-            driver.quit()
 
             if "robot" in html_content.lower() or "blocked" in html_content.lower() or "px-captcha" in html_content.lower():
-                print(" [Walmart Log] Detectado escudo Akamai / PerimeterX en Cloud Run.")
+                print("⚠️ [Walmart Log] Detectado escudo Akamai / PerimeterX en Cloud Run.")
                 return []
 
             soup = BeautifulSoup(html_content, "html.parser")
@@ -63,19 +58,6 @@ class WalmartScraper(BaseScraper):
                         price = float(price_str)
                     except ValueError:
                         price = 0.0
-                else:
-                    all_prices = re.findall(r'\$\s*([\d,]+(?:\.\d{2})?)', card_text)
-                    if all_prices:
-                        try:
-                            price = float(all_prices[0].replace(",", ""))
-                        except ValueError:
-                            price = 0.0
-
-                clean_link = raw_href
-                if "rd=" in raw_href:
-                    match_rd = re.search(r'rd=(https%3A%2F%2F[^\&]+)', raw_href)
-                    if match_rd:
-                        clean_link = unquote(match_rd.group(1))
 
                 if price > 0 and title not in seen_titles:
                     seen_titles.add(title)
@@ -83,7 +65,7 @@ class WalmartScraper(BaseScraper):
                         "title": title,
                         "price": price,
                         "currency": "MXN",
-                        "link": clean_link,
+                        "link": raw_href,
                         "thumbnail": "",
                         "store": self.store_name
                     })
@@ -93,3 +75,9 @@ class WalmartScraper(BaseScraper):
         except Exception as e:
             print(f"❌ Error al consultar Walmart: {e}")
             return []
+        finally:
+            if driver:
+                try:
+                    driver.quit() # Garantiza matar la sesión de DevTools sin dejar pipes huérfanos
+                except Exception:
+                    pass

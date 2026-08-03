@@ -1,12 +1,10 @@
-import re
-import json
-import requests
+from curl_cffi import requests
 from bs4 import BeautifulSoup
 from typing import List, Dict, Any
 from src.scrapers.base_scraper import BaseScraper
 
 class MeliScraper(BaseScraper):
-    """Scraper ultrarrápido para Mercado Libre inspeccionando payloads JSON internos."""
+    """Scraper ultrarrápido para Mercado Libre impersonando huella TLS de Chrome."""
 
     def __init__(self):
         super().__init__(store_name="MeLi")
@@ -18,57 +16,39 @@ class MeliScraper(BaseScraper):
         results = []
 
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "es-MX,es;q=0.9",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "es-MX,es;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Cache-Control": "max-age=0",
         }
 
         try:
-            response = requests.get(url, headers=headers, timeout=8)
+            # MAGIA CLAVE: impersonate="chrome" suplanta la huella TLS de Chrome 124
+            response = requests.get(url, headers=headers, impersonate="chrome", timeout=8)
             
             if response.status_code != 200:
                 print(f"⚠️ [MeLi Log] Status HTTP: {response.status_code}")
                 return []
 
-            html = response.text
+            soup = BeautifulSoup(response.text, "html.parser")
+            items = soup.select(".poly-card, .ui-search-layout__item, .ui-search-result, .ui-search-layout__stack")
+
+            print(f"🔍 [MeLi Debug TLS] Items encontrados con curl_cffi: {len(items)}")
+
             seen_titles = set()
 
-            # ESTRATEGIA 1: Buscar bloques JSON dentro de las etiquetas <script>
-            # MeLi mete los ítems en variables JS tipo "results":[{...}] o "results": [...]
-            json_matches = re.findall(r'\{\s*"id"\s*:\s*"MLM[^"]+"\s*,\s*"title"\s*:\s*"([^"]+)"\s*,\s*"price"\s*:\s*([\d\.]+)', html)
+            for item in items:
+                if len(results) >= limit:
+                    break
 
-            if json_matches:
-                for title, price_str in json_matches:
-                    if len(results) >= limit:
-                        break
-                    try:
-                        price = float(price_str)
-                        if price > 0 and title not in seen_titles:
-                            seen_titles.add(title)
-                            results.append({
-                                "title": title,
-                                "price": price,
-                                "currency": "MXN",
-                                "link": url, # Fallback link general de búsqueda si viene anonimizado
-                                "thumbnail": "",
-                                "store": self.store_name
-                            })
-                    except ValueError:
-                        continue
+                title_elem = item.select_one(".poly-component__title, .ui-search-item__title, h2, h3")
+                link_elem = item.select_one("a[href*='mercadolibre.com.mx']") or item.select_one("a")
+                price_elem = item.select_one(".andes-money-amount__fraction")
 
-            # ESTRATEGIA 2: Fallback por Regex de enlaces + precios en el texto crudo del HTML
-            if not results:
-                # Búsqueda rápida de títulos dentro de h2/h3 usando Regex directo en el HTML crudo
-                titles_raw = re.findall(r'<h[23][^>]*class="[^"]*poly-[^"]*"[^>]*>([^<]+)</h[23]>', html)
-                prices_raw = re.findall(r'class="andes-money-amount__fraction"[^>]*>([\d\.,]+)<', html)
-
-                for i in range(min(len(titles_raw), len(prices_raw))):
-                    if len(results) >= limit:
-                        break
-                    
-                    title = titles_raw[i].strip()
-                    price_str = prices_raw[i].replace(",", "").replace(".", "")
-                    price = float(price_str) if price_str.isdigit() else 0.0
+                if title_elem and price_elem and link_elem:
+                    title = title_elem.text.strip()
+                    raw_price = price_elem.text.strip().replace(",", "").replace(".", "")
+                    price = float(raw_price) if raw_price.isdigit() else 0.0
+                    link = link_elem.get("href", "")
 
                     if price > 0 and title not in seen_titles:
                         seen_titles.add(title)
@@ -76,14 +56,13 @@ class MeliScraper(BaseScraper):
                             "title": title,
                             "price": price,
                             "currency": "MXN",
-                            "link": url,
+                            "link": link,
                             "thumbnail": "",
                             "store": self.store_name
                         })
 
-            print(f"🔍 [MeLi Debug] Extraídos vía Regex/JSON: {len(results)}")
             return results
 
         except Exception as e:
-            print(f"❌ Error al consultar Mercado Libre con Requests: {e}")
+            print(f"❌ Error al consultar Mercado Libre con curl_cffi: {e}")
             return []
