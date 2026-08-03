@@ -19,13 +19,18 @@ class WalmartScraper(BaseScraper):
 
         try:
             driver = self.get_driver()
-            driver.uc_open_with_reconnect(url, reconnect_time=4)
+            driver.uc_open_with_reconnect(url, reconnect_time=5)
             
-            driver.execute_script("window.scrollTo(0, 1000);")
-            driver.sleep(2)
+            # Dar tiempo a Akamai para evaluar la sesión UC
+            driver.execute_script("window.scrollTo(0, 800);")
+            driver.sleep(3)
             
             html_content = driver.page_source
             driver.quit()
+
+            if "robot" in html_content.lower() or "blocked" in html_content.lower() or "px-captcha" in html_content.lower():
+                print(" [Walmart Log] Detectado escudo Akamai / PerimeterX en Cloud Run.")
+                return []
 
             soup = BeautifulSoup(html_content, "html.parser")
             ip_links = [a for a in soup.find_all("a") if a.get("href") and "/ip/" in a.get("href")]
@@ -42,7 +47,6 @@ class WalmartScraper(BaseScraper):
                 if not title or len(title) < 5:
                     continue
 
-                # Subimos 3 niveles para encontrar la tarjeta y extraer el precio actual
                 card = a
                 for _ in range(3):
                     if card.parent:
@@ -50,7 +54,6 @@ class WalmartScraper(BaseScraper):
 
                 card_text = card.text if card else ""
                 
-                # Buscamos patrones como "precio actual $1,399.00" o simplemente "$1,399.00"
                 price = 0.0
                 price_match = re.search(r'precio actual\s*\$\s*([\d,]+(?:\.\d{2})?)', card_text, re.IGNORECASE)
                 
@@ -61,7 +64,6 @@ class WalmartScraper(BaseScraper):
                     except ValueError:
                         price = 0.0
                 else:
-                    # Fallback de búsqueda de precio general en la tarjeta
                     all_prices = re.findall(r'\$\s*([\d,]+(?:\.\d{2})?)', card_text)
                     if all_prices:
                         try:
@@ -69,10 +71,8 @@ class WalmartScraper(BaseScraper):
                         except ValueError:
                             price = 0.0
 
-                # Limpiamos la URL por si viene enmascarada con el tracker de Walmart
                 clean_link = raw_href
                 if "rd=" in raw_href:
-                    # Extraemos el redirect real encodeado
                     match_rd = re.search(r'rd=(https%3A%2F%2F[^\&]+)', raw_href)
                     if match_rd:
                         clean_link = unquote(match_rd.group(1))

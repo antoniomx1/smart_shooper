@@ -16,15 +16,23 @@ class MeliScraper(BaseScraper):
         results = []
 
         try:
-            # Levantamos UC Mode en modo Headless
             driver = self.get_driver()
-            driver.uc_open_with_reconnect(url, reconnect_time=3)
+            driver.uc_open_with_reconnect(url, reconnect_time=4)
+            
+            # Forzamos un pequeño scroll para simular comportamiento humano en Cloud Run
+            driver.execute_script("window.scrollTo(0, 500);")
+            driver.sleep(2)
             
             html_content = driver.page_source
             driver.quit()
 
+            # Diagnóstico rápido en log por si nos tapan el paso
+            if "captcha" in html_content.lower() or "blocked" in html_content.lower():
+                print(" [MeLi Log] Detectado reto Anti-bot / Captcha en Cloud Run.")
+                return []
+
             soup = BeautifulSoup(html_content, "html.parser")
-            items = soup.select(".poly-card, .ui-search-layout__item, .ui-search-result")
+            items = soup.select(".poly-card, .ui-search-layout__item, .ui-search-result, .ui-search-layout__stack")
 
             seen_titles = set()
 
@@ -42,7 +50,6 @@ class MeliScraper(BaseScraper):
                     price = float(raw_price) if raw_price.isdigit() else 0.0
                     link = link_elem.get("href", "")
 
-                    # Evitamos duplicados por título o si el precio es cero
                     if price > 0 and title not in seen_titles:
                         seen_titles.add(title)
                         results.append({
