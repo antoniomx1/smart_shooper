@@ -27,12 +27,12 @@ class MeliScraper(BaseScraper):
                 print(f"⚠️ [MeLi Log] Status HTTP: {response.status_code}")
                 return []
 
+            # LOG DE ORO: Vamos a ver qué diantres nos regresa MeLi
+            print(f"📄 [MeLi Preview HTML]: {response.text[:500].replace('\n', ' ')}")
+
             soup = BeautifulSoup(response.text, "html.parser")
-            
-            # Selector ampliado: atrapa tanto la versión móvil como desktop de MeLi
             items = soup.select(".poly-card, .ui-search-result, .ui-search-layout__item, li.ui-search-layout__stack")
 
-            # Fallback 1: Si los selectores CSS fallan, buscamos los contenedores a partir de los precios
             if not items:
                 items = []
                 for price_elem in soup.select(".andes-money-amount"):
