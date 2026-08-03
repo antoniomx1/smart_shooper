@@ -15,22 +15,28 @@ class MeliScraper(BaseScraper):
         url = f"{self.base_url}{formatted_query}"
         results = []
 
-        # Headers cruciales para saltarse el 403 de solicitudes vacías
+        # Headers simulan navegador Chrome real
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Accept-Language": "es-MX,es;q=0.9,en-US;q=0.8,en;q=0.7",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "es-MX,es-419;q=0.9,es;q=0.8",
+            "Cache-Control": "max-age=0",
         }
 
         try:
             response = requests.get(url, headers=headers, timeout=8)
             
             if response.status_code != 200:
-                print(f" [MeLi Log] Status HTTP: {response.status_code}")
+                print(f"⚠️ [MeLi Log] Status HTTP: {response.status_code}")
                 return []
 
             soup = BeautifulSoup(response.text, "html.parser")
-            items = soup.select(".poly-card, .ui-search-layout__item, .ui-search-result")
+            
+            # Búsqueda ampliada de selectores por si cambia la estructura
+            items = soup.select(".poly-card, .ui-search-layout__item, .ui-search-result, .ui-search-layout__stack")
+
+            # LOG DE DIAGNÓSTICO
+            print(f"🔍 [MeLi Debug] Items detectados con BS4: {len(items)} | URL: {url}")
 
             seen_titles = set()
 
@@ -62,5 +68,5 @@ class MeliScraper(BaseScraper):
             return results
 
         except Exception as e:
-            print(f" Error al consultar Mercado Libre con Requests: {e}")
+            print(f"❌ Error al consultar Mercado Libre con Requests: {e}")
             return []
