@@ -1,15 +1,47 @@
+import os
+import base64
+import json
 import time
+from flask import Flask, request, jsonify
 from src.services.search_manager import SearchManager
 from src.services.ai_service import AIService
 from src.services.data_pipeline import DataPipeline
 
-def main():
-    query = "bocina jbl"
+app = Flask(__name__)
+
+# Instancia de servicios una sola vez al arrancar
+search_manager = SearchManager()
+ai_service = AIService(project_id="smartshooper")
+pipeline = DataPipeline(project_id="smartshooper")
+
+@app.route("/", methods=["GET"])
+def health_check():
+    # Para que Cloud Run sepa que la app está viva en el puerto 8080
+    return "SmartShopper Worker OK", 200
+
+@app.route("/pubsub", methods=["POST"])
+def process_pubsub_message():
+    """Endpoint para recibir la tarea desde Pub/Sub Push Subscription"""
+    envelope = request.get_json()
+    if not envelope:
+        return "Bad Request: No Pub/Sub envelope found", 400
+
+    if not isinstance(envelope, dict) or "message" not in envelope:
+        return "Bad Request: Invalid Pub/Sub message format", 400
+
+    pubsub_message = envelope["message"]
     
-    # Instancia de módulos independientes
-    search_manager = SearchManager()
-    ai_service = AIService(project_id="smartshooper")
-    pipeline = DataPipeline(project_id="smartshooper")
+    # Decodificar el mensaje enviado por Pub/Sub
+    if "data" in pubsub_message:
+        data_str = base64.b64decode(pubsub_message["data"]).decode("utf-8").strip()
+        payload = json.loads(data_str)
+    else:
+        return "OK", 200
+
+    query = payload.get("query", "bocina jbl")
+    chat_id = payload.get("chat_id")
+
+    print(f"[Worker] Procesando búsqueda recibida desde Pub/Sub para: '{query}'")
 
     start_time = time.time()
     
@@ -30,17 +62,12 @@ def main():
 
     end_time = time.time()
     total_time = round(end_time - start_time, 2)
+    print(f"[Worker] Búsqueda completada en {total_time}s para '{query}'")
 
-    print("\n" + "="*70)
-    print(f"RANKING DE PRECIOS CONSOLIDADO (Tiempo total: {total_time}s)")
-    print("="*70 + "\n")
+    # TODO: Enviar mensaje de respuesta a Telegram usando chat_id
 
-    for i, prod in enumerate(enriched_results, 1):
-        print(f"{i}. [{prod['store']}] {prod['title']}")
-        print(f"   Modelo Estandarizado: {prod.get('normalized_model', 'N/A')}")
-        print(f"   Precio: ${prod['price']:,.2f} {prod['currency']}")
-        print(f"   Link: {prod['link']}")
-        print("-" * 70)
+    return jsonify({"status": "success", "query": query, "time": total_time}), 200
 
 if __name__ == "__main__":
-    main()
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
