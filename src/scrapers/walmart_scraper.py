@@ -1,11 +1,11 @@
 import re
-from urllib.parse import unquote
 from bs4 import BeautifulSoup
 from typing import List, Dict, Any
 from src.scrapers.base_scraper import BaseScraper
 
+
 class WalmartScraper(BaseScraper):
-    """Scraper para Walmart México con manejo estricto de sesión."""
+    """Scraper para Walmart México con protección anti-bot reforzada."""
 
     def __init__(self):
         super().__init__(store_name="Walmart")
@@ -18,16 +18,25 @@ class WalmartScraper(BaseScraper):
         driver = None
 
         try:
-            driver = self.get_driver()
-            driver.uc_open_with_reconnect(url, reconnect_time=3)
-            
+            driver = self.get_driver(extra_evasion=True)
+            driver.uc_open_with_reconnect(url, reconnect_time=5)
+
+            # Scroll progresivo para cargar contendores lazy y superar detección JS
+            driver.execute_script("window.scrollTo(0, 500);")
+            driver.sleep(3)
+            driver.execute_script("window.scrollTo(0, 1000);")
+            driver.sleep(2)
+
             html_content = driver.page_source
 
-            if "robot" in html_content.lower() or "blocked" in html_content.lower() or "px-captcha" in html_content.lower():
-                print("⚠️ [Walmart Log] Detectado escudo Akamai / PerimeterX en Cloud Run.")
+            # HTML muy corto = bloqueo seguro
+            if len(html_content) < 8000:
+                print(f"[Walmart] HTML too short ({len(html_content)} bytes) - possible anti-bot block.")
                 return []
 
             soup = BeautifulSoup(html_content, "html.parser")
+
+            # Estrategia 1: Links a PDP con slug de producto
             ip_links = [a for a in soup.find_all("a") if a.get("href") and "/ip/" in a.get("href")]
 
             seen_titles = set()
@@ -42,24 +51,34 @@ class WalmartScraper(BaseScraper):
                 if not title or len(title) < 5:
                     continue
 
+                # Subir hasta el contendor de la card para buscar precio
                 card = a
-                for _ in range(3):
+                for _ in range(4):
                     if card.parent:
                         card = card.parent
 
-                card_text = card.text if card else ""
-                
-                price = 0.0
-                price_match = re.search(r'precio actual\s*\$\s*([\d,]+(?:\.\d{2})?)', card_text, re.IGNORECASE)
-                
-                if price_match:
-                    price_str = price_match.group(1).replace(",", "")
-                    try:
-                        price = float(price_str)
-                    except ValueError:
-                        price = 0.0
+                card_text = card.get_text() if card else ""
 
-                if price > 0 and title not in seen_titles:
+                # Extraer precio: múltiples patrones
+                price = 0.0
+                price_patterns = [
+                    r'precio\s+actual\s*\$?\s*([\d,]+(?:\.\d{2})?)',
+                    r'\$\s*([\d,]+(?:\.\d{2})?)',
+                    r'([\d,]+(?:\.\d{2})?)\s*\$',
+                ]
+
+                for pattern in price_patterns:
+                    price_match = re.search(pattern, card_text, re.IGNORECASE)
+                    if price_match:
+                        price_str = price_match.group(1).replace(",", "")
+                        try:
+                            price = float(price_str)
+                            if price > 0:
+                                break
+                        except ValueError:
+                            price = 0.0
+
+                if price > 0 and title not in seen_titles and len(title) > 5:
                     seen_titles.add(title)
                     results.append({
                         "title": title,
@@ -70,14 +89,15 @@ class WalmartScraper(BaseScraper):
                         "store": self.store_name
                     })
 
+            print(f"[Walmart] Products found: {len(results)}")
             return results
 
         except Exception as e:
-            print(f"❌ Error al consultar Walmart: {e}")
+            print(f"[Walmart] Search error: {e}")
             return []
         finally:
             if driver:
                 try:
-                    driver.quit() # Garantiza matar la sesión de DevTools sin dejar pipes huérfanos
+                    driver.quit()
                 except Exception:
                     pass

@@ -23,3 +23,5 @@ class Settings(BaseModel):
 
 # Instancia global de configuración
 settings = Settings()
+
+
