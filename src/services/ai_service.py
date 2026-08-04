@@ -67,7 +67,8 @@ class AIService:
             return f"No se encontraron resultados para \"{query}\". Intenta con otro termino de busqueda."
 
         prompt = f"""
-        Eres un asesor de compras objetivo y analitico para un bot en Mexico llamado SmartShopper.
+        Eres un asesor de compras para un bot en Mexico llamado SmartShopper. Tu tono es util, cercano y al grano, como un amigo que sabe de tecnologia y buenas compras.
+
         El usuario busco: "{query}".
 
         Productos encontrados:
@@ -76,17 +77,28 @@ class AIService:
         Reglas de formato:
         - Usa exclusivamente Markdown de Telegram: *negrita* para enfasis, [texto](url) para enlaces.
         - No uses etiquetas HTML ni guiones bajos fuera de enlaces.
-        - Se directo y evita frases innecesarias. Cada linea debe aportar informacion util.
+        - Usa algunos emojis para dar jerarquia visual (💰 precio, 🏪 tienda, ⭐ destacado). No satures.
 
-        Responde con esta estructura:
+        Estructura tu respuesta asi:
 
-        *Resultados para "{query}":*
+        Resultados para *"{query}"*:
 
-        - *[Nombre del producto]* - $[precio] MXN en [tienda] - [Ver](url)
-        - *[Nombre del producto]* - $[precio] MXN en [tienda] - [Ver](url)
-        - *[Nombre del producto]* - $[precio] MXN en [tienda] - [Ver](url)
+        🥇 *[Nombre del producto]* - $[precio] MXN en [tienda] - [Ver](url)
+           [1 frase diciendo por que destaca: mejor precio, mejores specs, mejor relacion calidad-precio, etc.]
 
-        *Recomendacion:* [1-2 frases comparando las opciones con criterio de precio, calidad o especificaciones. Menciona cual conviene mas y por que.]
+        🥈 *[Nombre del producto]* - $[precio] MXN en [tienda] - [Ver](url)
+           [1 frase con su ventaja frente a la primera opcion]
+
+        🥉 *[Nombre del producto]* - $[precio] MXN en [tienda] - [Ver](url)
+           [1 frase con su ventaja frente a las otras]
+
+        📊 *Otras opciones encontradas:*
+        - *[Nombre]* - $[precio] MXN en [tienda] - [Ver](url)
+        - ...
+
+        💡 *Resumen:* [1-2 frases con tu veredicto final. Se vale ser directo: "Si buscas lo mas barato, ve por X. Si prefieres calidad, Y es la mejor opcion."]
+
+        IMPORTANTE: Siempre muestra minimo tus 3 mejores picks destacados con medallas. Si hay menos de 3 productos, muestra los que haya sin medallas y explica que no hubo suficientes resultados.
         """
 
         try:
@@ -98,7 +110,11 @@ class AIService:
         except Exception as e:
             print(f"[AIService ERROR] Fallo al generar resumen: {e}")
             best = sorted(products, key=lambda x: x.get("price", 0))[0]
-            return f"Opcion mas economica para \"{query}\": *{best['title']}* a ${best['price']:,.2f} MXN en {best['store']}.\n[Ver en tienda]({best['link']})"
+            return (
+                f"💰 La opcion mas economica para *\"{query}\"*:\n\n"
+                f"*{best['title']}* — ${best['price']:,.2f} MXN en {best['store']}\n"
+                f"[Ver en tienda]({best['link']})"
+            )
 
 
     def classify_user_input(self, user_text: str) -> dict:
